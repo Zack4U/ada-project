@@ -1,8 +1,10 @@
-import numpy as np
-import time
+from datetime import datetime
 import itertools
+import numpy as np
 from scipy.stats import wasserstein_distance
 import json
+import time
+import pandas as pd
 
 """DIVISION DE SISTEMAS
 Hecho por: Juan Pablo Valencia Chaves y Kevin Santiago Lopez Salazar
@@ -68,12 +70,6 @@ def marginalize_TPM(TPM, full_system, candidate_system, full_map):
     row_sums = marginalized_TPM.sum(axis=1)
     marginalized_TPM = marginalized_TPM / row_sums[:, np.newaxis]
     
-    print("\nTPM original:")
-    print(TPM)
-    print("\nTPM marginalizada:")
-    print(marginalized_TPM)
-    
-    
     return marginalized_TPM
 
 def calculate_distribution(TPM, subset, state_map, initial_state):
@@ -83,6 +79,12 @@ def calculate_distribution(TPM, subset, state_map, initial_state):
     current_distribution = get_state_distribution(state_subset, n_elements, initial_state)
     next_distribution = np.dot(current_distribution, TPM)
     return next_distribution
+
+def create_state_mapping(full_system, candidate_system):
+    """Crea un mapeo de estados para el sistema completo y el sistema candidato"""
+    full_map = {'t': {elem: idx for idx, elem in enumerate(full_system['t'])}}
+    candidate_map = {'t': {elem: idx for idx, elem in enumerate(candidate_system['t'])}}
+    return full_map, candidate_map
 
 def g(subset, TPM, V, state_map, initial_state):
     """Calcula el EMD entre las distribuciones"""
@@ -108,14 +110,29 @@ def divide_system(TPM, full_system, candidate_system, initial_state):
     best_P_X = None
     best_P_V = None
     
+    # Crear DataFrame para almacenar resultados
+    results_df = pd.DataFrame(columns=['Timestamp', 'W0', 'W1', 'EMD', 'Tiempo_Verificacion'])
+    
     # Probar todas las posibles divisiones
     for i in range(1, n):
         for W0 in itertools.combinations(elements, i):
             W0 = list(W0)
             W1 = [x for x in elements if x not in W0]
             
+            start_time = time.time()
             current_g, P_X, P_V = g(W1, marginalized_TPM, candidate_system, 
                                   candidate_map, candidate_initial_state)
+            verification_time = time.time() - start_time
+            
+            # Guardar resultados en DataFrame
+            new_row = {
+                'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'W0': str(W0),
+                'W1': str(W1),
+                'EMD': current_g,
+                'Tiempo_Verificacion': verification_time
+            }
+            results_df.loc[len(results_df)] = new_row
             
             if current_g < best_g:
                 best_g = current_g
@@ -123,6 +140,10 @@ def divide_system(TPM, full_system, candidate_system, initial_state):
                 best_W1 = W1
                 best_P_X = P_X
                 best_P_V = P_V
+    
+    # Exportar resultados al finalizar
+    results_df.to_excel('resultados_recursividad.xlsx', index=False)
+    print("Resultados exportados a 'resultados_recursividad.xlsx'")
     
     return best_W0, best_W1, best_g, best_P_X, best_P_V
 
@@ -155,35 +176,17 @@ def verify_results(W0, W1, EMD, P_X, P_V, TPM, V):
     
     return verification
 
-def create_state_mapping(full_system, candidate_system):
-    """Crea mapeos para el sistema completo y candidato"""
-    full_map = {
-        't': {elem: i for i, elem in enumerate(full_system['t'])},
-        't+1': {elem: i for i, elem in enumerate(full_system['t+1'])}
-    }
-    
-    candidate_map = {
-        't': {elem: i for i, elem in enumerate(candidate_system['t'])},
-        't+1': {elem: i for i, elem in enumerate(candidate_system['t+1'])}
-    }
-    
-    return full_map, candidate_map
-
 def main():
-    
-    print("-" *80)
+    print("-" * 80)
     print("DIVISION DE SISTEMAS")
     print("Hecho por: Juan Pablo Valencia Chaves y Kevin Santiago Lopez Salazar")
     print("Analisis y Diseño De Algoritmos")
     print("II Semestre 2024")
-    print("-" *80)
-    
-    
+    print("-" * 80)
     
     try:
         # Leer datos de entrada
-        #! (Cambiar nombre del archivo si es necesario)
-        with open('system_data.json', 'r') as f:
+        with open('red_11_nodos.json', 'r') as f:
             input_data = json.load(f)
         
         TPM = np.array(input_data['TPM'])
@@ -209,9 +212,9 @@ def main():
         # Verificación
         verification = verify_results(W0, W1, best_g, P_X, P_V, TPM, candidate_system)
         if verification["status"]:
-            print("\n✓ Todos los resultados son válidos")
+            print("\nTodos los resultados son válidos")
         else:
-            print("\n⚠ Se encontraron problemas:")
+            print("\nSe encontraron problemas:")
             for msg in verification["messages"]:
                 print(f"  - {msg}")
                 
